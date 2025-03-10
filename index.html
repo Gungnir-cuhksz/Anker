@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+     <!--
+        @Author: dannie.kuang
+        @Email: dannie.kuang@anker-in.com
+        @Date: 2025/02/07
+        @Description:
+    -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片检查工具</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .container { width: 100%; margin: auto; text-align: center; }
+        .top-bar { 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            gap: 10px; 
+            margin-bottom: 20px; 
+            flex-wrap: wrap; 
+        }
+        .image-grid {
+            display: grid;
+            grid-gap: 10px;
+            justify-content: center;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); /* 自动适配列数 */
+            grid-auto-rows: auto; /* 自动调整行高 */
+            max-width: 100%;
+        }
+        .image-container {
+            position: relative;
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+        .image-container img {
+            max-width: 100%;
+            height: auto;
+            cursor: pointer;
+            transition: transform 0.3s;
+        }
+        .image-container .label {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 3px;
+        }
+        .image-container .options {
+            display: none;
+            position: absolute;
+            top: 25px;
+            left: 5px;
+            background: white;
+            border: 1px solid black;
+        }
+        .image-container:hover .options {
+            display: block;
+        }
+
+        .overlay { 
+            display: none; 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            background: rgba(0, 0, 0, 0.8); 
+            justify-content: center; 
+            align-items: center; 
+            z-index: 3000; 
+        }
+        .overlay img { 
+            max-width: 90%; 
+            max-height: 90%; 
+            transition: transform 0.3s; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="top-bar">
+            <input type="file" id="folderInput" webkitdirectory directory multiple>
+            <label for="batchSize">每次导入数量:</label>
+            <select id="batchSize">
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="40">40</option>
+                <option value="custom">自定义</option>
+            </select>
+            <input type="number" id="customBatch" style="display:none;" min="1">
+            <label for="columns">每行图片数量:</label>
+            <input type="number" id="columns" min="1" max="10" value="5"> 
+            <button id="exportLabels">导出标签结果</button>
+            <button id="prevPage">上一页</button>
+            <button id="nextPage">下一页</button>
+            <span id="pageInfo">第 1 页</span>
+            <button id="firstPage">第一页</button>
+            <input type="number" id="jumpPage" min="1" placeholder="跳转到...">
+            <button id="jumpToPage">跳转</button>
+            <button id="lastPage">最后一页</button>
+        </div>
+        
+        <div class="image-grid" id="imageGrid"></div>
+    </div>
+
+    <div class="overlay" id="imageOverlay">
+        <img id="overlayImage" src="" alt="">
+    </div>
+
+    <script>
+        let images = [];
+        let columns = 4; 
+        let currentPage = 1;
+        let batchSize = 5;
+        let labels = {};
+
+        document.getElementById('batchSize').addEventListener('change', function () {
+            if (this.value === 'custom') {
+                document.getElementById('customBatch').style.display = 'inline';
+            } else {
+                batchSize = Number(this.value);
+                document.getElementById('customBatch').style.display = 'none';
+                currentPage = 1;
+                displayImages();
+                updatePageControls();
+            }
+        });
+
+        document.getElementById('customBatch').addEventListener('input', function () {
+            batchSize = Number(this.value) || 5;
+            currentPage = 1;
+            displayImages();
+            updatePageControls();
+        });
+
+        document.getElementById('folderInput').addEventListener('change', function (event) {
+            images = [...event.target.files].map(file => ({ url: URL.createObjectURL(file), name: file.name }));
+            labels = images.reduce((acc, img) => { acc[img.name] = '合格'; return acc; }, {});
+            currentPage = 1;
+            displayImages();
+            updatePageControls();
+        });
+
+        document.getElementById('columns').addEventListener('input', function () {
+            columns = Math.min(Math.max(Number(this.value), 1), 10);
+            displayImages();
+        });
+
+        function displayImages() {
+            const grid = document.getElementById('imageGrid');
+            grid.innerHTML = '';
+            grid.style.gridTemplateColumns = `repeat(${columns}, minmax(100px, 1fr))`;
+
+            const batchStart = (currentPage - 1) * batchSize;
+            const batchEnd = Math.min(batchStart + batchSize, images.length);
+            
+            images.slice(batchStart, batchEnd).forEach(({ url, name }) => {
+                const container = document.createElement('div');
+                container.className = 'image-container';
+
+                const img = document.createElement('img');
+                img.src = url;
+                img.onload = function () {
+                    const width = img.naturalWidth;
+                    const height = img.naturalHeight;
+                    const aspectRatio = width / height;
+
+                    // 自动适配图片大小
+                    img.style.width = '100%';
+                    img.style.height = 'auto';
+                    if (aspectRatio > 1) {
+                        img.style.maxWidth = '100%'; // 横向图片
+                    } else {
+                        img.style.maxHeight = '100%'; // 竖向图片
+                    }
+                };
+
+                img.onclick = () => openOverlay(url);
+                container.appendChild(img);
+
+                const label = document.createElement('div');
+                label.className = 'label';
+                label.textContent = labels[name];
+                container.appendChild(label);
+
+                const options = document.createElement('div');
+                options.className = 'options';
+                ['合格', '不合格', '待定'].forEach(option => {
+                    const btn = document.createElement('button');
+                    btn.textContent = option;
+                    btn.onclick = () => { labels[name] = option; label.textContent = option; };
+                    options.appendChild(btn);
+                });
+                container.appendChild(options);
+
+                grid.appendChild(container);
+            });
+
+            document.getElementById('pageInfo').textContent = `第 ${currentPage} 页`;
+        }
+
+        function updatePageControls() {
+            document.getElementById('firstPage').disabled = currentPage === 1;
+            document.getElementById('prevPage').disabled = currentPage === 1;
+            document.getElementById('nextPage').disabled = currentPage * batchSize >= images.length;
+            document.getElementById('lastPage').disabled = currentPage * batchSize >= images.length;
+        }
+
+        document.getElementById('firstPage').addEventListener('click', function () { currentPage = 1; displayImages(); updatePageControls(); });
+        document.getElementById('prevPage').addEventListener('click', function () { if (currentPage > 1) currentPage--; displayImages(); updatePageControls(); });
+        document.getElementById('nextPage').addEventListener('click', function () { if (currentPage * batchSize < images.length) currentPage++; displayImages(); updatePageControls(); });
+        document.getElementById('lastPage').addEventListener('click', function () { currentPage = Math.ceil(images.length / batchSize); displayImages(); updatePageControls(); });
+        document.getElementById('jumpToPage').addEventListener('click', function () { let p = Number(document.getElementById('jumpPage').value); if (p >= 1 && p <= Math.ceil(images.length / batchSize)) { currentPage = p; displayImages(); updatePageControls(); } });
+
+        function openOverlay(src) {
+            const overlay = document.getElementById('imageOverlay');
+            const overlayImage = document.getElementById('overlayImage');
+            overlayImage.src = src;
+
+            // 根据图片尺寸调整显示大小
+            const img = new Image();
+            img.src = src;
+            img.onload = function () {
+                const windowWidth = window.innerWidth * 0.9; // 90% 的窗口宽度
+                const windowHeight = window.innerHeight * 0.9; // 90% 的窗口高度
+                const aspectRatio = img.width / img.height;
+
+                if (img.width > windowWidth || img.height > windowHeight) {
+                    if (aspectRatio > 1) {
+                        overlayImage.style.width = `${windowWidth}px`;
+                        overlayImage.style.height = 'auto';
+                    } else {
+                        overlayImage.style.height = `${windowHeight}px`;
+                        overlayImage.style.width = 'auto';
+                    }
+                } else {
+                    overlayImage.style.width = 'auto';
+                    overlayImage.style.height = 'auto';
+                }
+            };
+
+            overlay.style.display = 'flex';
+        }
+
+        document.getElementById('imageOverlay').addEventListener('click', function () {
+            document.getElementById('imageOverlay').style.display = 'none';
+        });
+        document.getElementById('exportLabels').addEventListener('click', function () {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(labels, null, 2));
+            const dlAnchorElem = document.createElement('a');
+            dlAnchorElem.setAttribute("href", dataStr);
+            dlAnchorElem.setAttribute("download", "labels.json");
+            dlAnchorElem.click();
+        });
+    </script>
+</body>
+</html>
